@@ -85,7 +85,7 @@ public class Load {
 
         String[] properties = new String[numProperty * 2];
         for (int i = 0; i < numProperty * 2; i += 2) {
-            properties[i] = "attr" + i;
+            properties[i] = "attr" + (i / 2);
         }
 
         long c = 1L;
