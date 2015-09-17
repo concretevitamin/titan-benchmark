@@ -74,7 +74,7 @@ public class Load {
     }
 
     private static void loadGraph(TitanGraph g, Configuration conf) throws IOException {
-        BatchGraph bg = new BatchGraph(g, VertexIDType.NUMBER, 10000);
+        BatchGraph bg = new BatchGraph(g, VertexIDType.NUMBER, 500000);
 
         int propertySize = conf.getInt("property.size");
         int numProperty = conf.getInt("property.total");
@@ -83,41 +83,48 @@ public class Load {
         int offset = conf.getBoolean("zero_indexed") ? 1 : 0;
         System.out.printf("nodeFile %s, edgeFile %s, propertySize %d\n", nodeFile, edgeFile, propertySize);
 
+        String[] properties = new String[numProperty * 2];
+        for (int i = 0; i < numProperty * 2; i += 2) {
+            properties[i] = "attr" + i;
+        }
+
         long c = 1L;
         try (BufferedReader br = new BufferedReader(new FileReader(nodeFile))) {
             for (String line; (line = br.readLine()) != null; ) {
                 // Node file has funky carriage return ^M, so we read one more line to finish the node information
                 line += '\02' + br.readLine(); // replace carriage return with dummy line
-                Vertex node = bg.addVertex(TitanId.toVertexId(c));
                 Iterator<String> tokens = Splitter.fixedLength(propertySize + 1).split(line).iterator();
                 for (int i = 0; i < numProperty; i++) {
-                    String attr = tokens.next().substring(1); // trim first delimiter character
-                    node.setProperty("attr" + i, attr);
+                    // trim first delimiter character
+                    properties[i * 2 + 1] = tokens.next().substring(1);
                 }
-                if (++c%100000L == 0L) {
+                // Hopefully reduces RPC trips.
+                bg.addVertex(TitanId.toVertexId(c), properties);
+                if (++c % 100000L == 0L) {
                     System.out.println("Processed " + c + " nodes");
                 }
             }
         }
 
-        bg.commit();
-
         c = 1L;
+        Object[] edgeProperties = new Object[4];
+        edgeProperties[0] = "timestamp";
+        edgeProperties[2] = "property";
         try (BufferedReader br = new BufferedReader(new FileReader(edgeFile))) {
             for (String line; (line = br.readLine()) != null; ) {
                 List<String> tokens = Lists.newArrayList(Splitter.on(' ').limit(5).trimResults().split(line));
                 Long id1 = Long.parseLong(tokens.get(0)) + offset;
                 Long id2 = Long.parseLong(tokens.get(1)) + offset;
                 String atype = tokens.get(2);
-                Long timestamp = Long.parseLong(tokens.get(3));
-                String property = tokens.get(4);
+
+                edgeProperties[1] = Long.parseLong(tokens.get(3));
+                edgeProperties[3] = tokens.get(4);
 
                 Vertex v1 = bg.getVertex(TitanId.toVertexId(id1));
                 Vertex v2 = bg.getVertex(TitanId.toVertexId(id2));
-                Edge edge = bg.addEdge(null, v1, v2, atype);
-                edge.setProperty("timestamp", timestamp);
-                edge.setProperty("property", property);
-                if (++c%100000L == 0L) {
+                bg.addEdge(null, v1, v2, atype, edgeProperties);
+
+                if (++c % 100000L == 0L) {
                     System.out.println("Processed " + c + " edges");
                 }
             }
