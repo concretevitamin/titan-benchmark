@@ -113,6 +113,7 @@ public class ParLoadNode {
 
         int propertySize = conf.getInt("property.size");
         int numProperty = conf.getInt("property.total");
+        int offset = conf.getBoolean("zero_indexed") ? 1 : 0;
 
         System.out.printf("nodeFile %s, propertySize %d\n", nodeFile, propertySize);
 
@@ -135,7 +136,7 @@ public class ParLoadNode {
                 for (String line; (line = br.readLine()) != null; ) {
                     Iterator<String> tokens = nodeTableSplitter
                         .split(line).iterator();
-                    long nodeId = Long.parseLong(tokens.next());
+                    long nodeId = Long.parseLong(tokens.next()) + offset;
                     for (int i = 0; i < numProperty; i++) {
                         // trim first delimiter character
                         properties[i * 2 + 1] = tokens.next();
