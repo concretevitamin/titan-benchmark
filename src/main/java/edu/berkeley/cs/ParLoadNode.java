@@ -15,11 +15,13 @@ import org.apache.commons.configuration.PropertiesConfiguration;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 
 public class ParLoadNode {
 
-    static String nodeFile = null, edgeFile = null;
+    static String[] nodeFiles = null;
 
     public static void main(String[] args) throws ConfigurationException, IOException {
         Configuration config = new PropertiesConfiguration(
@@ -27,28 +29,56 @@ public class ParLoadNode {
         Configuration titanConfiguration = new PropertiesConfiguration(
             Load.class.getResource("/titan-cassandra.properties"));
 
-        if (args.length > 0) {
-            nodeFile = args[0];
-        }
-        if (args.length > 1) {
-            edgeFile = args[1];
-        }
+        nodeFiles = args;
 
         load(config, titanConfiguration);
     }
 
-    public static void load(Configuration config, Configuration titanConfig) throws IOException {
+    static class NodeSplitLoader implements Runnable {
+        TitanGraph g;
+        Configuration config;
+        String nodeFile;
+
+        public NodeSplitLoader
+            (TitanGraph g, Configuration config, String nodeFile) {
+
+            this.g = g;
+            this.config = config;
+            this.nodeFile = nodeFile;
+        }
+
+        @Override
+        public void run() {
+            loadGraph(g, config, nodeFile);
+        }
+    }
+
+    public static void load(final Configuration config, Configuration titanConfig) throws IOException {
         titanConfig.setProperty("storage.batch-loading", true);
         titanConfig.setProperty("schema.default", "none");
         titanConfig.setProperty("graph.set-vertex-id", true);
         titanConfig.setProperty("storage.cassandra.keyspace", config.getString("name"));
 
-        TitanGraph g = TitanFactory.open(titanConfig);
+        final TitanGraph g = TitanFactory.open(titanConfig);
         createSchemaIfNotExists(g, config);
         if (g.getVertices().iterator().hasNext()) {
             System.err.print("Warning! Graph already has data!");
         } else {
-            loadGraph(g, config);
+            List<Thread> threads = new ArrayList<>(nodeFiles.length);
+            for (String nodeFile : nodeFiles) {
+                threads.add(new Thread(
+                    new NodeSplitLoader(g, config, nodeFile)));
+            }
+            for (Thread thread : threads) {
+                thread.start();
+            }
+            try {
+                for (Thread thread : threads) {
+                    thread.join();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -78,22 +108,13 @@ public class ParLoadNode {
         mgmt.commit();
     }
 
-    private static void loadGraph(TitanGraph g, Configuration conf) throws IOException {
+    private static void loadGraph(TitanGraph g, Configuration conf, String nodeFile) {
         BatchGraph bg = new BatchGraph(g, VertexIDType.NUMBER, 500000);
 
         int propertySize = conf.getInt("property.size");
         int numProperty = conf.getInt("property.total");
-        String nodeFile = conf.getString("data.node");
-        String edgeFile = conf.getString("data.edge");
-        if (ParLoadNode.nodeFile != null) {
-            nodeFile = ParLoadNode.nodeFile;
-        }
-        if (ParLoadNode.edgeFile != null) {
-            edgeFile = ParLoadNode.edgeFile;
-        }
 
-        int offset = conf.getBoolean("zero_indexed") ? 1 : 0;
-        System.out.printf("nodeFile %s, edgeFile %s, propertySize %d\n", nodeFile, edgeFile, propertySize);
+        System.out.printf("nodeFile %s, propertySize %d\n", nodeFile, propertySize);
 
         String[] properties = new String[numProperty * 2];
         for (int i = 0; i < numProperty * 2; i += 2) {
@@ -107,23 +128,27 @@ public class ParLoadNode {
         final int bufferSize = 8 * 1024 * 100; // roughly 1000 nodes at a time
         Splitter nodeTableSplitter = Splitter.on('\02');
 
-        try (BufferedReader br = new BufferedReader(
-            new FileReader(nodeFile), bufferSize)) {
+        try {
+            try (BufferedReader br = new BufferedReader(
+                new FileReader(nodeFile), bufferSize)) {
 
-            for (String line; (line = br.readLine()) != null; ) {
-                Iterator<String> tokens = nodeTableSplitter
-                    .split(line).iterator();
-                long nodeId = Long.parseLong(tokens.next());
-                for (int i = 0; i < numProperty; i++) {
-                    // trim first delimiter character
-                    properties[i * 2 + 1] = tokens.next();
-                }
-                // Hopefully reduces RPC trips.
-                bg.addVertex(TitanId.toVertexId(nodeId), properties);
-                if (++c % 100000L == 0L) {
-                    System.out.println("Processed " + c + " nodes");
+                for (String line; (line = br.readLine()) != null; ) {
+                    Iterator<String> tokens = nodeTableSplitter
+                        .split(line).iterator();
+                    long nodeId = Long.parseLong(tokens.next());
+                    for (int i = 0; i < numProperty; i++) {
+                        // trim first delimiter character
+                        properties[i * 2 + 1] = tokens.next();
+                    }
+                    // Hopefully reduces RPC trips.
+                    bg.addVertex(TitanId.toVertexId(nodeId), properties);
+                    if (++c % 100000L == 0L) {
+                        System.out.println("Processed " + c + " nodes");
+                    }
                 }
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
         bg.commit();
