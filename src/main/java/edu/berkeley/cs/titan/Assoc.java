@@ -18,7 +18,7 @@ public class Assoc implements Comparable<Assoc> {
 
     public String toString() {
         return String.format(
-                "[src=%d,dst=%d,atype=%d,time=%d,prop='%s']",
+                "[src=%d,dst=%d,atype=%d,time=%d,attr='%s']",
                 srcId, dstId, atype, timestamp, prop);
     }
 
