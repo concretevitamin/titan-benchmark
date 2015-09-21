@@ -112,13 +112,18 @@ public class Load {
         edgeProperties[2] = "property";
         try (BufferedReader br = new BufferedReader(new FileReader(edgeFile))) {
             for (String line; (line = br.readLine()) != null; ) {
-                List<String> tokens = Lists.newArrayList(Splitter.on(' ').limit(5).trimResults().split(line));
+                List<String> tokens = Lists.newArrayList(Splitter.on(' ').limit(4).split(line));
                 Long id1 = Long.parseLong(tokens.get(0)) + offset;
                 Long id2 = Long.parseLong(tokens.get(1)) + offset;
+
                 String atype = tokens.get(2);
 
-                edgeProperties[1] = Long.parseLong(tokens.get(3));
-                edgeProperties[3] = tokens.get(4);
+                String tsAndProp = tokens.get(3);
+                int splitIdx = tsAndProp.indexOf(' ');
+
+                edgeProperties[1] = Long.parseLong(
+                    tsAndProp.substring(0, splitIdx));
+                edgeProperties[3] = tsAndProp.substring(splitIdx + 1);
 
                 Vertex v1 = bg.getVertex(TitanId.toVertexId(id1));
                 Vertex v2 = bg.getVertex(TitanId.toVertexId(id2));
