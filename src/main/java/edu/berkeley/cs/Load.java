@@ -89,11 +89,16 @@ public class Load {
         }
 
         long c = 1L;
-        try (BufferedReader br = new BufferedReader(new FileReader(nodeFile))) {
+        final int fileReadBuf = 8 * 1024 * 100; // roughly 1000 nodes at a time
+        Splitter nodeTableSplitter = Splitter.fixedLength(propertySize + 1);
+
+        try (BufferedReader br = new BufferedReader(
+            new FileReader(nodeFile), fileReadBuf)) {
+
             for (String line; (line = br.readLine()) != null; ) {
                 // Node file has funky carriage return ^M, so we read one more line to finish the node information
                 line += '\02' + br.readLine(); // replace carriage return with dummy line
-                Iterator<String> tokens = Splitter.fixedLength(propertySize + 1).split(line).iterator();
+                Iterator<String> tokens = nodeTableSplitter.split(line).iterator();
                 for (int i = 0; i < numProperty; i++) {
                     // trim first delimiter character
                     properties[i * 2 + 1] = tokens.next().substring(1);
@@ -110,11 +115,16 @@ public class Load {
         Object[] edgeProperties = new Object[4];
         edgeProperties[0] = "timestamp";
         edgeProperties[2] = "property";
-        try (BufferedReader br = new BufferedReader(new FileReader(edgeFile))) {
+        Splitter edgeFileSplitter = Splitter.on(' ').limit(4);
+        try (BufferedReader br = new BufferedReader(
+            new FileReader(edgeFile), fileReadBuf)) {
+
             for (String line; (line = br.readLine()) != null; ) {
-                List<String> tokens = Lists.newArrayList(Splitter.on(' ').limit(4).split(line));
-                Long id1 = Long.parseLong(tokens.get(0)) + offset;
-                Long id2 = Long.parseLong(tokens.get(1)) + offset;
+                List<String> tokens = Lists.newArrayList(
+                    edgeFileSplitter.split(line));
+
+                long id1 = Long.parseLong(tokens.get(0)) + offset;
+                long id2 = Long.parseLong(tokens.get(1)) + offset;
 
                 String atype = tokens.get(2);
 
